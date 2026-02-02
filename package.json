@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "data.js",
   "scripts": {
+    "start": "node data.js",
+    "dev": "nodemon data.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

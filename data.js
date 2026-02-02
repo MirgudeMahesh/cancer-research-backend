@@ -8,18 +8,26 @@ const fs = require("fs");
 const app = express();
 
 // ---------- CORS ----------
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000' ;
-app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
-// const allowedOrigins = [
-//     'http://localhost:5173',
-//     'http://127.0.0.1:5173',
-//     process.env.FRONTEND_ORIGIN // optional: for production
-// ].filter(Boolean);
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'https://cancer-research-pulse.vercel.app',
+    process.env.FRONTEND_ORIGIN
+].filter(Boolean);
 
-// app.use(cors({
-//     origin: allowedOrigins,
-//     credentials: true
-// }));
+app.use(cors({
+    origin: function (origin, callback) {
+        // allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
+    credentials: true
+}));
 
 app.use(express.json());
 
@@ -256,19 +264,19 @@ app.post("/api/login", async (req, res) => {
  */
 app.post("/api/patients", async (req, res) => {
     const patientData = req.body;
-    
+
     // We want to save everything sent by the frontend that isn't metadata
     const metadataFields = ['id', 'created_at', 'updated_at'];
-    
+
     // Iterate through all fields in patientData
     const columns = [];
     const values = [];
-    
+
     for (const [key, value] of Object.entries(patientData)) {
         if (metadataFields.includes(key)) continue;
-        
+
         columns.push(key);
-        
+
         // Handle serialization of complex types (arrays or objects)
         if (value !== null && typeof value === 'object') {
             values.push(JSON.stringify(value));
@@ -286,21 +294,21 @@ app.post("/api/patients", async (req, res) => {
         const sql = `INSERT INTO patients (${columns.join(", ")}) VALUES (${placeholders})`;
 
         const [result] = await pool.execute(sql, values);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: "Patient record saved successfully",
-            patientId: result.insertId 
+            patientId: result.insertId
         });
     } catch (error) {
         console.error("Add patient error:", error);
-        
+
         // If column is missing, we might want to log it specifically
         if (error.code === 'ER_BAD_FIELD_ERROR') {
-            return res.status(500).json({ 
-                success: false, 
+            return res.status(500).json({
+                success: false,
                 message: "Database schema mismatch. Please ensure all form fields have corresponding columns in the patients table.",
-                error: error.message 
+                error: error.message
             });
         }
 
