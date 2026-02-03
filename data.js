@@ -317,6 +317,52 @@ app.post("/api/patients", async (req, res) => {
 });
 
 /**
+ * 2.5 Update Patient
+ * Updates existing patient details.
+ */
+app.put("/api/patients/:id", async (req, res) => {
+    const { id } = req.params;
+    const patientData = req.body;
+
+    const metadataFields = ['id', 'created_at', 'updated_at'];
+
+    const updates = [];
+    const values = [];
+
+    for (const [key, value] of Object.entries(patientData)) {
+        if (metadataFields.includes(key)) continue;
+
+        updates.push(`${key} = ?`);
+
+        if (value !== null && typeof value === 'object') {
+            values.push(JSON.stringify(value));
+        } else {
+            values.push(value);
+        }
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ success: false, message: "No patient data provided for update" });
+    }
+
+    values.push(id);
+
+    try {
+        const sql = `UPDATE patients SET ${updates.join(", ")} WHERE id = ?`;
+        await pool.execute(sql, values);
+
+        res.json({
+            success: true,
+            message: "Patient record updated successfully"
+        });
+    } catch (error) {
+        console.error("Update patient error:", error);
+        res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+    }
+});
+
+
+/**
  * 3. Fetch All Patients of a Doctor
  * Retrieves all patient records added by a specific doctor.
  */
