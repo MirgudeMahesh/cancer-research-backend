@@ -101,15 +101,39 @@ pool
         process.exit(1);
     });
 
-// ---------- Nodemailer Setup ----------
-const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+// ---------- SendGrid Email Setup ----------
+const sgMail = require('@sendgrid/mail');
+
+// Initialize SendGrid only if API key is available
+if (process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log("✅ SendGrid email service initialized");
+} else {
+    console.log("⚠️ SENDGRID_API_KEY not set - email notifications will be disabled");
+}
+
+// Helper function to send emails
+async function sendEmail({ to, subject, html }) {
+    if (!process.env.SENDGRID_API_KEY) {
+        console.log("⚠️ Email not sent - SendGrid not configured");
+        return { success: false, error: "SendGrid not configured" };
     }
-});
+
+    const msg = {
+        to: to,
+        from: process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_USER,
+        subject: subject,
+        html: html
+    };
+
+    try {
+        await sgMail.send(msg);
+        return { success: true };
+    } catch (error) {
+        console.error("SendGrid error:", error.response?.body || error.message);
+        return { success: false, error: error.message };
+    }
+}
 
 // ---------- Health check ----------
 app.get("/healthz", (_, res) => res.send("ok"));
@@ -197,8 +221,7 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
         });
 
         // Try to send email in background (fire and forget)
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
+        sendEmail({
             to: practitioner.email,
             subject: 'Account Approved - Cancer Research Portal',
             html: `
@@ -210,12 +233,13 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
                 <br/>
                 <p>Best Regards,<br/>Cancer Research Team</p>
             `
-        };
-
-        // Fire and forget - don't await
-        transporter.sendMail(mailOptions)
-            .then(() => console.log(`✅ Approval email sent to ${practitioner.email}`))
-            .catch(err => console.log(`⚠️ Email failed (non-critical): ${err.message}`));
+        }).then(result => {
+            if (result.success) {
+                console.log(`✅ Approval email sent to ${practitioner.email}`);
+            } else {
+                console.log(`⚠️ Email failed (non-critical): ${result.error}`);
+            }
+        });
     } catch (error) {
         console.error("Approve error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -242,8 +266,7 @@ app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
         });
 
         // Try to send email in background (fire and forget)
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
+        sendEmail({
             to: practitioner.email,
             subject: 'Account Registration Status - Cancer Research Portal',
             html: `
@@ -254,12 +277,13 @@ app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
                 <br/>
                 <p>Best Regards,<br/>Cancer Research Team</p>
             `
-        };
-
-        // Fire and forget - don't await
-        transporter.sendMail(mailOptions)
-            .then(() => console.log(`✅ Rejection email sent to ${practitioner.email}`))
-            .catch(err => console.log(`⚠️ Email failed (non-critical): ${err.message}`));
+        }).then(result => {
+            if (result.success) {
+                console.log(`✅ Rejection email sent to ${practitioner.email}`);
+            } else {
+                console.log(`⚠️ Email failed (non-critical): ${result.error}`);
+            }
+        });
     } catch (error) {
         console.error("Reject error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
