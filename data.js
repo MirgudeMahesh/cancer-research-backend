@@ -101,69 +101,10 @@ pool
         process.exit(1);
     });
 
-// ---------- SendGrid Email Setup ----------
-const sgMail = require('@sendgrid/mail');
-
-// Initialize SendGrid only if API key is available
-if (process.env.SENDGRID_API_KEY) {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    console.log("✅ SendGrid email service initialized");
-} else {
-    console.log("⚠️ SENDGRID_API_KEY not set - email notifications will be disabled");
-}
-
-// Helper function to send emails
-async function sendEmail({ to, subject, html }) {
-    if (!process.env.SENDGRID_API_KEY) {
-        console.log("⚠️ Email not sent - SendGrid not configured");
-        return { success: false, error: "SendGrid not configured" };
-    }
-
-    const msg = {
-        to: to,
-        from: process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_USER,
-        subject: subject,
-        html: html
-    };
-
-    try {
-        await sgMail.send(msg);
-        return { success: true };
-    } catch (error) {
-        console.error("SendGrid error:", error.response?.body || error.message);
-        return { success: false, error: error.message };
-    }
-}
 
 // ---------- Health check ----------
 app.get("/healthz", (_, res) => res.send("ok"));
 
-/**
- * Diagnostic: Test Email Transporter
- */
-app.get("/api/admin/test-email", async (req, res) => {
-    const testRecipient = req.query.email || process.env.EMAIL_USER;
-
-    if (!testRecipient) {
-        return res.status(400).json({ success: false, message: "No recipient email provided and EMAIL_USER not set." });
-    }
-
-    const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: testRecipient,
-        subject: 'Diagnostic: Email System Check',
-        text: 'This is a test email from the Cancer Research Portal backend to verify the email configuration is working correctly.',
-        html: '<h3>Cancer Research Portal</h3><p>This is a <strong>test email</strong> to verify that your email configuration is working correctly.</p>'
-    };
-
-    try {
-        await transporter.sendMail(mailOptions);
-        res.json({ success: true, message: `Test email sent successfully to ${testRecipient}` });
-    } catch (error) {
-        console.error("Email Test Error:", error);
-        res.status(500).json({ success: false, message: "Failed to send test email.", error: error.message });
-    }
-});
 
 /**
  * Admin Login
@@ -220,26 +161,6 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
             }
         });
 
-        // Try to send email in background (fire and forget)
-        sendEmail({
-            to: practitioner.email,
-            subject: 'Account Approved - Cancer Research Portal',
-            html: `
-                <h3>Hello ${practitioner.first_name},</h3>
-                <p>Your account on the Cancer Research Portal has been approved.</p>
-                <p><strong>Login URL:</strong> <a href="https://cancer-research-pulse.vercel.app">https://cancer-research-pulse.vercel.app</a></p>
-                <p><strong>Password:</strong> ${practitioner.password_hash}</p>
-                <p>You can now log in and start using the portal.</p>
-                <br/>
-                <p>Best Regards,<br/>Cancer Research Team</p>
-            `
-        }).then(result => {
-            if (result.success) {
-                console.log(`✅ Approval email sent to ${practitioner.email}`);
-            } else {
-                console.log(`⚠️ Email failed (non-critical): ${result.error}`);
-            }
-        });
     } catch (error) {
         console.error("Approve error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -265,25 +186,6 @@ app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
             message: "Practitioner rejected successfully."
         });
 
-        // Try to send email in background (fire and forget)
-        sendEmail({
-            to: practitioner.email,
-            subject: 'Account Registration Status - Cancer Research Portal',
-            html: `
-                <h3>Hello ${practitioner.first_name},</h3>
-                <p>We regret to inform you that your registration for the Cancer Research Portal has been rejected.</p>
-                <p><strong>Reason/Remarks:</strong> ${remarks}</p>
-                <p>If you have any questions, please contact support.</p>
-                <br/>
-                <p>Best Regards,<br/>Cancer Research Team</p>
-            `
-        }).then(result => {
-            if (result.success) {
-                console.log(`✅ Rejection email sent to ${practitioner.email}`);
-            } else {
-                console.log(`⚠️ Email failed (non-critical): ${result.error}`);
-            }
-        });
     } catch (error) {
         console.error("Reject error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
