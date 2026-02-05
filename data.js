@@ -10,7 +10,9 @@ const app = express();
 // ---------- CORS ----------
 const allowedOrigins = [
     'http://localhost:5173',
+    'http://localhost:5174',
     'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
     'http://localhost:3000',
     'https://cancer-research-pulse.vercel.app',
     process.env.FRONTEND_ORIGIN
@@ -99,8 +101,171 @@ pool
         process.exit(1);
     });
 
+// ---------- Nodemailer Setup ----------
+const nodemailer = require('nodemailer');
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
 // ---------- Health check ----------
 app.get("/healthz", (_, res) => res.send("ok"));
+
+/**
+ * Diagnostic: Test Email Transporter
+ */
+app.get("/api/admin/test-email", async (req, res) => {
+    const testRecipient = req.query.email || process.env.EMAIL_USER;
+
+    if (!testRecipient) {
+        return res.status(400).json({ success: false, message: "No recipient email provided and EMAIL_USER not set." });
+    }
+
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: testRecipient,
+        subject: 'Diagnostic: Email System Check',
+        text: 'This is a test email from the Cancer Research Portal backend to verify the email configuration is working correctly.',
+        html: '<h3>Cancer Research Portal</h3><p>This is a <strong>test email</strong> to verify that your email configuration is working correctly.</p>'
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        res.json({ success: true, message: `Test email sent successfully to ${testRecipient}` });
+    } catch (error) {
+        console.error("Email Test Error:", error);
+        res.status(500).json({ success: false, message: "Failed to send test email.", error: error.message });
+    }
+});
+
+/**
+ * Admin Login
+ */
+app.post("/api/admin/login", async (req, res) => {
+    const { username, password } = req.body;
+
+    const adminUser = process.env.ADMIN_USER || 'pulse_testing_for_nhs';
+    const adminPass = process.env.ADMIN_PASS || 'pulse@testing@nhs';
+
+    if (username === adminUser && password === adminPass) {
+        return res.json({
+            success: true,
+            message: "Admin login successful",
+            admin: { name: 'NHS Admin', role: 'admin' }
+        });
+    }
+    res.status(401).json({ success: false, message: "Invalid admin credentials" });
+});
+
+/**
+ * Get All Practitioners (Admin)
+ */
+app.get("/api/admin/practitioners", async (req, res) => {
+    try {
+        const [rows] = await pool.execute("SELECT * FROM practitioners ORDER BY created_at DESC");
+        res.json({ success: true, practitioners: rows });
+    } catch (error) {
+        console.error("Fetch practitioners admin error:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+
+/**
+ * Approve Practitioner
+ */
+app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await pool.execute("SELECT email, password_hash, first_name FROM practitioners WHERE id = ?", [id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Practitioner not found" });
+
+        const practitioner = rows[0];
+        await pool.execute("UPDATE practitioners SET status = 'approved' WHERE id = ?", [id]);
+
+        // Send Email
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: practitioner.email,
+            subject: 'Account Approved - Cancer Research Portal',
+            html: `
+                <h3>Hello ${practitioner.first_name},</h3>
+                <p>Your account on the Cancer Research Portal has been approved.</p>
+                <p><strong>Login URL:</strong> <a href="https://cancer-research-pulse.vercel.app">https://cancer-research-pulse.vercel.app</a></p>
+                <p><strong>Password:</strong> ${practitioner.password_hash}</p>
+                <p>You can now log in and start using the portal.</p>
+                <br/>
+                <p>Best Regards,<br/>Cancer Research Team</p>
+            `
+        };
+        console.log(mailOptions)
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`Approval email sent to ${practitioner.email}`);
+        } catch (mailError) {
+            console.error("Email sending failed:", mailError);
+            return res.json({
+                success: true,
+                message: "Practitioner approved in database, but the notification email failed to send.",
+                error: mailError.message
+            });
+        }
+
+        res.json({ success: true, message: "Practitioner approved and email sent." });
+    } catch (error) {
+        console.error("Approve error:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+
+/**
+ * Reject Practitioner
+ */
+app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
+    const { id } = req.params;
+    const { remarks } = req.body;
+    try {
+        const [rows] = await pool.execute("SELECT email, first_name FROM practitioners WHERE id = ?", [id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Practitioner not found" });
+
+        const practitioner = rows[0];
+        await pool.execute("UPDATE practitioners SET status = 'rejected', remarks = ? WHERE id = ?", [remarks, id]);
+
+        // Send Email
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: practitioner.email,
+            subject: 'Account Registration Status - Cancer Research Portal',
+            html: `
+                <h3>Hello ${practitioner.first_name},</h3>
+                <p>We regret to inform you that your registration for the Cancer Research Portal has been rejected.</p>
+                <p><strong>Reason/Remarks:</strong> ${remarks}</p>
+                <p>If you have any questions, please contact support.</p>
+                <br/>
+                <p>Best Regards,<br/>Cancer Research Team</p>
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`Rejection email sent to ${practitioner.email}`);
+        } catch (mailError) {
+            console.error("Email sending failed:", mailError);
+            return res.json({
+                success: true,
+                message: "Practitioner rejected in database, but the notification email failed to send.",
+                error: mailError.message
+            });
+        }
+
+        res.json({ success: true, message: "Practitioner rejected and email sent." });
+    } catch (error) {
+        console.error("Reject error:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
 
 /**
  * 1. Login Validation & ID Fetching
@@ -113,32 +278,38 @@ app.post("/api/login", async (req, res) => {
     console.log(`Login attempt for: ${normalizedEmail}`);
 
     try {
+        // Only check practitioners table now
         const [rows] = await pool.execute(
-            "SELECT id, name, email, password_hash FROM doctors WHERE email = ?",
+            "SELECT id, first_name, last_name, email, password_hash, status FROM practitioners WHERE email = ?",
             [normalizedEmail]
         );
 
-        if (rows.length === 0) {
-            console.log("User not found in database");
-            return res.status(401).json({ success: false, message: "Invalid email or credentials" });
-        }
+        if (rows.length > 0) {
+            const practitioner = rows[0];
 
-        const doctor = rows[0];
-
-        // Direct comparison with the password_hash column
-        if (password_hash !== doctor.password_hash) {
-            return res.status(401).json({ success: false, message: "Invalid email or credentials" });
-        }
-
-        res.json({
-            success: true,
-            message: "Login successful",
-            doctor: {
-                id: doctor.id,
-                name: doctor.name,
-                email: doctor.email
+            if (practitioner.status !== 'approved') {
+                return res.status(403).json({
+                    success: false,
+                    message: `Account status: ${practitioner.status}. Please wait for admin approval.`
+                });
             }
-        });
+
+            if (password_hash === practitioner.password_hash) {
+                return res.json({
+                    success: true,
+                    message: "Login successful",
+                    doctor: {
+                        id: practitioner.id, // This ID is now the one linked to patients
+                        name: `${practitioner.first_name} ${practitioner.last_name}`,
+                        email: practitioner.email
+                    }
+                });
+            }
+        }
+
+        console.log("User not found or invalid credentials");
+        return res.status(401).json({ success: false, message: "Invalid email or credentials" });
+
     } catch (error) {
         console.error("Login error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -255,7 +426,7 @@ app.post("/api/login", async (req, res) => {
  *     upcoming_follow_up DATE,
  *     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  *     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
- *     FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+ *     FOREIGN KEY (doctor_id) REFERENCES practitioners(id)
  * );
  */
 /**
@@ -377,6 +548,88 @@ app.get("/api/patients/doctor/:doctorId", async (req, res) => {
     } catch (error) {
         console.error("Fetch patients error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+
+/**
+ * 4. Practitioner Registration
+ * Saves a new practitioner's details to the practitioners table.
+ */
+app.post("/api/register", async (req, res) => {
+    const {
+        hospitalName,
+        societies,
+        otherSociety,
+        country,
+        city,
+        title,
+        firstName,
+        lastName,
+        consent,
+        phone,
+        email,
+        password
+    } = req.body;
+
+    const normalizedEmail = email ? email.trim().toLowerCase() : '';
+
+    try {
+        // Simple validation
+        if (!normalizedEmail || !password) {
+            return res.status(400).json({ success: false, message: "Missing required fields." });
+        }
+
+        // Check if email already exists
+        const [existing] = await pool.execute(
+            "SELECT id FROM practitioners WHERE email = ?",
+            [normalizedEmail]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({ success: false, message: "Email is already registered." });
+        }
+
+        const sql = `
+            INSERT INTO practitioners (
+                hospital_name, 
+                societies, 
+                other_society, 
+                country, 
+                city, 
+                title, 
+                first_name, 
+                last_name, 
+                consent_given, 
+                phone, 
+                email, 
+                password_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const values = [
+            hospitalName,
+            JSON.stringify(societies),
+            otherSociety || null,
+            country,
+            city,
+            title,
+            firstName,
+            lastName,
+            consent ? 1 : 0,
+            phone,
+            normalizedEmail,
+            password // Note: In production, hash this with bcrypt
+        ];
+
+        await pool.execute(sql, values);
+
+        res.status(201).json({
+            success: true,
+            message: "Registration successful! You can now login once approved."
+        });
+    } catch (error) {
+        console.error("Registration error:", error);
+        res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 });
 
