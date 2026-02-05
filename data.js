@@ -105,15 +105,18 @@ pool
 const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // use SSL
+    port: 587,
+    secure: false, // use STARTTLS
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
-    connectionTimeout: 10000, // 10 seconds
+    connectionTimeout: 10000,
     greetingTimeout: 5000,
-    socketTimeout: 30000
+    socketTimeout: 30000,
+    tls: {
+        rejectUnauthorized: false // can help with certain cloud network restrictions
+    }
 });
 
 // ---------- Health check ----------
