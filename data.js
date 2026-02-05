@@ -185,7 +185,18 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
         const practitioner = rows[0];
         await pool.execute("UPDATE practitioners SET status = 'approved' WHERE id = ?", [id]);
 
-        // Attempt to send email (non-blocking)
+        // Send response immediately to prevent timeout
+        res.json({
+            success: true,
+            message: "Practitioner approved successfully.",
+            credentials: {
+                email: practitioner.email,
+                password: practitioner.password_hash,
+                loginUrl: "https://cancer-research-pulse.vercel.app"
+            }
+        });
+
+        // Try to send email in background (fire and forget)
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: practitioner.email,
@@ -201,32 +212,10 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
             `
         };
 
-        let emailStatus = "not sent";
-        try {
-            // Set a shorter timeout for email attempt
-            const emailPromise = transporter.sendMail(mailOptions);
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Email timeout')), 5000)
-            );
-
-            await Promise.race([emailPromise, timeoutPromise]);
-            emailStatus = "sent successfully";
-            console.log(`✅ Approval email sent to ${practitioner.email}`);
-        } catch (mailError) {
-            console.error("⚠️ Email sending failed (non-critical):", mailError.message);
-            emailStatus = `failed: ${mailError.message}`;
-        }
-
-        res.json({
-            success: true,
-            message: `Practitioner approved successfully. Email ${emailStatus}.`,
-            emailSent: emailStatus === "sent successfully",
-            credentials: {
-                email: practitioner.email,
-                password: practitioner.password_hash,
-                loginUrl: "https://cancer-research-pulse.vercel.app"
-            }
-        });
+        // Fire and forget - don't await
+        transporter.sendMail(mailOptions)
+            .then(() => console.log(`✅ Approval email sent to ${practitioner.email}`))
+            .catch(err => console.log(`⚠️ Email failed (non-critical): ${err.message}`));
     } catch (error) {
         console.error("Approve error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -246,7 +235,13 @@ app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
         const practitioner = rows[0];
         await pool.execute("UPDATE practitioners SET status = 'rejected', remarks = ? WHERE id = ?", [remarks, id]);
 
-        // Attempt to send email (non-blocking)
+        // Send response immediately to prevent timeout
+        res.json({
+            success: true,
+            message: "Practitioner rejected successfully."
+        });
+
+        // Try to send email in background (fire and forget)
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: practitioner.email,
@@ -261,26 +256,10 @@ app.post("/api/admin/practitioners/:id/reject", async (req, res) => {
             `
         };
 
-        let emailStatus = "not sent";
-        try {
-            const emailPromise = transporter.sendMail(mailOptions);
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Email timeout')), 5000)
-            );
-
-            await Promise.race([emailPromise, timeoutPromise]);
-            emailStatus = "sent successfully";
-            console.log(`✅ Rejection email sent to ${practitioner.email}`);
-        } catch (mailError) {
-            console.error("⚠️ Email sending failed (non-critical):", mailError.message);
-            emailStatus = `failed: ${mailError.message}`;
-        }
-
-        res.json({
-            success: true,
-            message: `Practitioner rejected successfully. Email ${emailStatus}.`,
-            emailSent: emailStatus === "sent successfully"
-        });
+        // Fire and forget - don't await
+        transporter.sendMail(mailOptions)
+            .then(() => console.log(`✅ Rejection email sent to ${practitioner.email}`))
+            .catch(err => console.log(`⚠️ Email failed (non-critical): ${err.message}`));
     } catch (error) {
         console.error("Reject error:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
