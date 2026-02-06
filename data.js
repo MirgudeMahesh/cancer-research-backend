@@ -4,6 +4,7 @@ const mysql = require("mysql2/promise");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
+const { sendApprovalEmail } = require('./emailService');
 
 const app = express();
 
@@ -153,12 +154,23 @@ app.post("/api/admin/practitioners/:id/approve", async (req, res) => {
         // Send response immediately to prevent timeout
         res.json({
             success: true,
-            message: "Practitioner approved successfully.",
+            message: "Practitioner approved successfully. Approval email sent.",
             credentials: {
                 email: practitioner.email,
                 password: practitioner.password_hash,
                 loginUrl: "https://cancer-research-pulse.vercel.app"
             }
+        });
+
+        // Send approval email asynchronously (don't wait for it to complete)
+        sendApprovalEmail(
+            practitioner.email,
+            practitioner.first_name,
+            practitioner.password_hash
+        ).then(() => {
+            console.log(`✅ Approval email sent to ${practitioner.email}`);
+        }).catch((error) => {
+            console.error(`❌ Failed to send approval email to ${practitioner.email}:`, error);
         });
 
     } catch (error) {
