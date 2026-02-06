@@ -26,11 +26,19 @@ async function sendEmail(to, subject, html) {
             htmlContent: html
         };
 
+        console.log(`📧 Attempting to send email to: ${to}`);
+        console.log(`📨 Sender: ${sendSmtpEmail.sender.email}`);
+
         const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
         console.log('✅ Email sent successfully via Brevo:', response);
         return response;
     } catch (error) {
         console.error('❌ Error sending email via Brevo:', error);
+        console.error('❌ Error details:', {
+            message: error.message,
+            response: error.response?.text || error.response?.body,
+            statusCode: error.status
+        });
         throw error;
     }
 }
