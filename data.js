@@ -72,6 +72,7 @@ try {
             waitForConnections: true,
             connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 50),
             ssl: sslOptions,
+            dateStrings: true
         });
     } else {
         pool = mysql.createPool({
@@ -83,6 +84,7 @@ try {
             waitForConnections: true,
             connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 50),
             ssl: sslOptions,
+            dateStrings: true
         });
     }
 } catch (err) {
@@ -273,6 +275,8 @@ app.post("/api/login", async (req, res) => {
  *     initial_cancer_diagnosis VARCHAR(255),
  *     first_cancer_therapy DATE,
  *     patients_type VARCHAR(255),
+ *     dateOfAdmission DATE,
+ *     dateOfVisit DATE,
  *     condition_specific VARCHAR(255),
  *     hematology_oncology VARCHAR(255),
  *     primary_diagnosis VARCHAR(255),
