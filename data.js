@@ -39,6 +39,7 @@ app.use(cors({
 // }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));  // Parse form-urlencoded data
 
 // ---------- DB pool (supports DATABASE_URL or individual env vars) ----------
 let pool;
